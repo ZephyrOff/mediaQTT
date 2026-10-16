@@ -1,4 +1,4 @@
-﻿[![Android CI](https://github.com/cbeyls/MediaSession2MQTT/actions/workflows/android.yml/badge.svg)](https://github.com/cbeyls/MediaSession2MQTT/actions/workflows/android.yml)
+[![Android CI](https://github.com/cbeyls/MediaSession2MQTT/actions/workflows/android.yml/badge.svg)](https://github.com/cbeyls/MediaSession2MQTT/actions/workflows/android.yml)
 
 # MediaSession2MQTT
 **Publish the current Android MediaSession state to an MQTT broker**
