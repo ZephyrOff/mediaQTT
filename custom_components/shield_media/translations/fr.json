@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shield Media",
+        "description": "Activez « Local API » dans les réglages de l'application sur la Shield, puis saisissez son adresse et son token d'appairage.",
+        "data": {
+          "host": "Hôte",
+          "port": "Port",
+          "token": "Token d'appairage"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Connexion impossible. La Shield est-elle allumée et l'API locale activée ?",
+      "invalid_auth": "La Shield a refusé le token d'appairage"
+    },
+    "abort": {
+      "already_configured": "Cette Shield est déjà configurée"
+    }
+  }
+}

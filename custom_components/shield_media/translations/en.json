@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shield Media",
+        "description": "Enable \"Local API\" in the app settings on the Shield, then enter its address and pairing token.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "token": "Pairing token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect. Is the Shield awake and the local API enabled?",
+      "invalid_auth": "The Shield refused the pairing token"
+    },
+    "abort": {
+      "already_configured": "This Shield is already configured"
+    }
+  }
+}

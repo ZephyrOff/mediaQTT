@@ -1,0 +1,229 @@
+﻿[![Android CI](https://github.com/cbeyls/MediaSession2MQTT/actions/workflows/android.yml/badge.svg)](https://github.com/cbeyls/MediaSession2MQTT/actions/workflows/android.yml)
+
+# MediaSession2MQTT
+**Publish the current Android MediaSession state to an MQTT broker**
+
+This Android application is designed to run as a background service on Android TV devices (or any other kind of Android device used as a media player) and publish the current state of media playback to an MQTT broker.
+
+This allows, for example, to monitor in real time the media playback status of the device in home automation software like Home Assistant, and create automations based on the media playback state.
+
+Contrary to other integrations like ADB commands or Google Cast polling, installing this application enables reliable **local push** monitoring for any application that supports MediaSession.
+The application is designed to be as lightweight as possible, and uses the very efficient and low latency MQTT protocol to publish its state messages.
+
+## How to build manually
+
+Import the project in Android Studio or use Gradle in command line:
+
+```
+./gradlew assembleRelease
+```
+
+The result apk file will be placed in `app/release/`. Don't forget to sign the APK before trying to install it on a device.
+
+## Installation
+
+Download the latest APK file on your device. For Android TV, you can get the file from a USB stick or over the network by using a file manager application, or you can use [ADB](https://developer.android.com/tools/adb) to directly install the app remotely.
+
+For ADB, you first need to enable ADB debugging in the developer options of the TV, then type the following commands:
+
+```
+adb connect [IP address of your TV]
+adb install ./mediasession2mqtt-1.1.6.apk
+```
+
+or for an upgrade:
+
+```
+adb install -r ./mediasession2mqtt-1.1.6.apk
+```
+
+## Configuration
+
+After installing the app, go the the "Apps" list in the Settings menu of your device and find the entry for "MediaSession2MQTT" (the app is designed to not appear in most launchers but only on that screen).
+
+From the application details screen, click "Open" to open the configuration screen of MediaSession2MQTT.
+
+In the configuration screen, start by entering your MQTT broker configuration (protocol version, host name or IP address, port, and username and password if your broker requires authentication). Note that only the unencrypted TCP protocol is currently supported.
+
+Test your connection by clicking on "Test Connection".
+
+Next, specify the QOS level you need for MQTT messages (QOS 0 should be enough for most local connections).
+
+Then, change the device id if you have more than one device connecting to the MQTT broker (default is `1`).
+
+Finally, you need to give the app full access to system notifications. To do so, click on "Open system notification access settings" and check the box for "MediaSession2MQTT".
+
+After navigating back to the MediaSession2MQTT configuration screen, you should now see the following message appear in the status section: ***Actively listening to MediaSessions***.
+
+If you don't see it, try to force stop the app process or restart your device.
+
+### Manually enabling system notification access using ADB
+
+If an error message appears when clicking on "Open system notification access settings", it means that your device doesn't provide an user interface to change these settings, but you can still change them manually using ADB.
+
+To do so, you need to install an ADB client and first connect to the device, either using a USB cable or through the network using the command:
+
+```
+adb connect [IP address of your device]
+```
+
+Then, type the following command.
+
+For Android 8 and below:
+
+```
+adb shell settings put secure enabled_notification_listeners %nlisteners:be.digitalia.mediasession2mqtt/be.digitalia.mediasession2mqtt.service.MediaSessionListenerService
+```
+
+For Android 9 and above:
+
+```
+adb shell cmd notification allow_listener be.digitalia.mediasession2mqtt/be.digitalia.mediasession2mqtt.service.MediaSessionListenerService
+```
+
+After typing the command, it's recommended to restart the device to make sure the change has been registered properly.
+
+As soon as the app configuration screen shows "Actively listening to MediaSessions" and the MQTT connection test was successful, you're good to go!
+
+### Extra step for TCL televisions
+
+Android TV devices manufactured by TCL come with a software called _Safety Guard_ which prevents apps from automatically starting background services on boot unless they are manually given a specific authorization. Without this authorization, MediaSession2MQTT will not be able to monitor the MediaSessions after rebooting the device.
+
+There are 3 ways to grant the auto-start authorization to MediaSession2MQTT on TCL TVs:
+
+1. Open the "Safety Guard" application. In the "Permission Shield" section, navigate to "Auto Launch Permission". Switch the "Auto Manager" setting to "Closed" and the MediaSession2MQTT entry in the apps list to "Opened".
+2. If that option is not available, first connect to the device using ADB then type the following command:
+```
+adb shell appops set be.digitalia.mediasession2mqtt APP_AUTO_START allow
+```
+3. In some TCL firmwares, the command may be called `AUTO_START` instead. If the above command fails, try this one instead:
+```
+adb shell appops set be.digitalia.mediasession2mqtt AUTO_START allow
+```
+
+Whichever method you use, you can verify that the authorization has been granted to the app by using the following command:
+
+```
+adb shell appops get be.digitalia.mediasession2mqtt
+```
+
+After rebooting your TCL TV, you should see the session status being updated on your MQTT broker.
+
+## Home Assistant MQTT Discovery
+
+This app provides an integration for Home Assistant since version 1.1.0. Check the box "Enable Home Assistant integration" in the settings screen and the MQTT Discovery configuration will also be published, allowing Home Assistant to detect and configure MediaSession2MQTT as a new device automatically.
+
+## The MQTT API
+
+By default, the application only pushes state messages. The publishing connection is kept open as long as possible and no keepalive packets are sent. If the connection gets interrupted for any reason, it will be automatically re-established lazily when the next MQTT message needs to be published.
+
+**Fork addition:** when "Accept playback commands" is enabled in the settings (it is off by default), the application also keeps a second, dedicated connection subscribed to the command topics described in the [Commands](#commands) section below. That connection uses a 30 seconds keepalive and is re-established automatically every 5 seconds after a failure.
+
+The application publishes the following topics to the MQTT broker (replace `{deviceId}` with your actual device id which is `1` by default):
+
+### mediaSession/{deviceId}/playbackState
+The current playback state of the player connected to the current MediaSession, if any. Can be one of the following values: `idle`, `playing`, `paused`.
+
+Note that the `buffering` state is intentionally not supported for the following reasons:
+- Since buffering can happen at any time, adding this state makes it harder to detect transitions to and from the `playing` state;
+- Buffering can not be considered as a sub-state of `playing` because some applications pre-buffer playback even before the user requests playing the content (e.g. Amazon Prime Video).
+
+### mediaSession/{deviceId}/playbackPosition
+
+The current playback position in milliseconds of the currently playing or paused media. Updated at the same time as the playback state.
+In the `playing` state, the position won't be updated periodically: the difference between the current time and the playback position last update time must be added to this value to calculate the current playback position.
+When no media is currently playing or paused, the value is an empty string (`""`).
+
+### mediaSession/{deviceId}/applicationId
+
+The Android application id of the currently active MediaSession, or an empty String (`""`) if no MediaSession is currently active.
+
+Examples of possible values:
+
+- `com.google.android.youtube.tv`: YouTube for Android TV
+- `com.netflix.ninja`: Netflix for Android TV
+- `com.amazon.amazonvideo.livingroom`: Amazon Prime Video for Android TV
+- `com.disney.disneyplus`: Disney+ for Android TV
+- `com.apple.atve.android.appletv`: Apple TV+
+- `org.videolan.vlc`: VLC Media Player
+
+### mediaSession/{deviceId}/mediaTitle
+
+The title of the currently playing or paused media, or an empty String (`""`) if no media is currently playing or paused or the title is unavailable.
+
+Note that many applications don't report any title, for example: Netflix, Disney+ for Android TV or Amazon Prime Video for Android TV.
+
+### mediaSession/{deviceId}/mediaDuration
+
+The duration of the currently playing or paused media in milliseconds, or an empty String (`""`) if no media is currently playing or paused or the duration is unavailable.
+
+## Commands
+
+Enable "Accept playback commands" in the settings screen. The application then subscribes to the following topics and applies the commands to the **current** MediaSession, i.e. the latest one that reached an active playback state (the same one reported by the topics above).
+
+Anyone who can publish to your broker can control playback, so protect it with credentials if it is reachable from untrusted devices. Retained messages are ignored, so a stale command is never replayed after a reconnection.
+
+### mediaSession/{deviceId}/command
+
+One of the following payloads, case insensitive. Unknown payloads are ignored.
+
+| Payload      | Effect                                                    |
+|--------------|-----------------------------------------------------------|
+| `play`       | Resume playback                                           |
+| `pause`      | Pause playback                                            |
+| `play_pause` | Pause if the state is `playing`, play otherwise           |
+| `stop`       | Stop playback                                             |
+| `next`       | Skip to the next item                                     |
+| `previous`   | Skip to the previous item                                 |
+
+### mediaSession/{deviceId}/seek
+
+An absolute playback position in milliseconds, for example `120000` to jump to 2 minutes. Anything that is not a non-negative integer is ignored.
+
+### Limits
+
+The application can only send the command: whether the target application honours it depends on the playback actions that application declares. A command the target application does not support is silently ignored. Test each command with each application you care about, for example:
+
+```
+mosquitto_pub -h <broker> -t mediaSession/1/command -m pause
+mosquitto_pub -h <broker> -t mediaSession/1/seek -m 120000
+```
+
+### Home Assistant
+
+With both "Enable Home Assistant integration" and "Accept playback commands" enabled, the MQTT Discovery configuration also creates one `button` entity per command (`play`, `pause`, `play_pause`, `stop`, `next`, `previous`). Disabling "Accept playback commands" removes these buttons from Home Assistant again.
+
+Note that Home Assistant's MQTT Discovery does **not** support the `media_player` platform, so it cannot create a `media_player` entity by itself. The Universal Media Player integration cannot assemble one from these entities either: it only takes the title, position and duration from a child `media_player` entity, and it ignores a `media_seek` override. The sensors and buttons above are therefore best used in automations or a custom card. The `seek` topic has no discovery entity: publish to it with the `mqtt.publish` action.
+
+## Local API (fork addition)
+
+Disabled by default. Enable "Enable local API" in the settings: the app then serves a WebSocket on `ws://<ip>:<port>/ws` (default port `8765`) on all interfaces, independently of MQTT, and announces itself over mDNS as `_shield-media._tcp`. The pairing token is shown in the settings screen (random, 32 hex characters; use "Regenerate pairing token" to replace it and disconnect all clients). Connections must send `Authorization: Bearer <token>`, otherwise the handshake is refused.
+
+Messages (JSON text frames):
+
+- app → client, on connection then on every change: `{"type":"state","state":"playing|paused|idle","app_id":"...","title":"..."|null,"duration_ms":123|null,"position_ms":123|null,"position_updated_at":"2026-10-16T13:00:00.000Z","supported_actions":["play","pause","stop","seek","next","previous"]}`. `position_updated_at` is the UTC time at which `position_ms` was valid.
+- client → app: `{"id":1,"type":"command","command":"play|pause|play_pause|stop|next|previous|seek","position_ms":120000}` (`position_ms` for `seek` only).
+- app → client: `{"id":1,"type":"result","ok":true}` or `{"id":1,"type":"result","ok":false,"error":"no_session|unsupported|unknown_command|invalid_position|invalid_message|failed"}`. `unsupported` means the application doesn't declare the action in its playback state.
+
+The traffic is unencrypted: only expose it on a trusted network.
+
+The Home Assistant custom integration is in [custom_components/shield_media](../custom_components/shield_media) at the root of this repository (installable with HACS): add this repository as a custom repository in HACS, install it, restart Home Assistant, then add the "Shield Media" integration with the Shield address and the pairing token.
+
+## A note about the Netflix app
+
+The Netflix app reports the `playing` state right from the home screen, especially if video previews are enabled. To limit this effect, you can disable video previews in Netflix or add a condition in your home automation rules to ignore the action if the Netflix application id is detected.
+
+## License
+
+[Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+## Used libraries
+
+* [KMQTT](https://github.com/davidepianca98/KMQTT) by Davide Pianca
+* [Metro](https://github.com/ZacSweers/metro) by Zac Sweers
+* [Kotlin Standard Library](https://github.com/JetBrains/kotlin) by JetBrains s.r.o. and Kotlin Programming Language contributors
+* [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) by JetBrains s.r.o.
+
+## Contributors
+
+* Christophe Beyls
